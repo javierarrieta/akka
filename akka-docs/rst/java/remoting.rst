@@ -485,7 +485,7 @@ defined in configuration::
 
     akka.remote.trusted-selection-paths = ["/user/receptionist", "/user/namingService"]
 
-The actual message must still not be :class:`PossiblyHarmful`.
+The actual message must still not be of type :class:`PossiblyHarmful`.
 
 In summary, the following operations are ignored by a system configured in
 untrusted mode when incoming via the remoting layer:

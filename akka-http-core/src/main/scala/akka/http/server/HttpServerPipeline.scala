@@ -15,6 +15,7 @@ import akka.http.rendering.{ ResponseRenderingContext, HttpResponseRendererFacto
 import akka.http.model.{ StatusCode, ErrorInfo, HttpRequest, HttpResponse }
 import akka.http.parsing.ParserOutput._
 import akka.http.Http
+import akka.http.util._
 
 /**
  * INTERNAL API
@@ -23,7 +24,6 @@ private[http] class HttpServerPipeline(settings: ServerSettings,
                                        materializer: FlowMaterializer,
                                        log: LoggingAdapter)
   extends (StreamTcp.IncomingTcpConnection ⇒ Http.IncomingConnection) {
-  import HttpServerPipeline._
 
   val rootParser = new HttpRequestParser(settings.parserSettings, settings.rawRequestUriHeader, materializer)()
   val warnOnIllegalHeader: ErrorInfo ⇒ Unit = errorInfo ⇒
@@ -111,16 +111,12 @@ private[http] class HttpServerPipeline(settings: ServerSettings,
     }
 }
 
+/**
+ * INTERNAL API
+ */
 private[http] object HttpServerPipeline {
   def constructRequest(requestStart: RequestStart, entityParts: Producer[RequestOutput]): HttpRequest = {
     import requestStart._
     HttpRequest(method, uri, headers, createEntity(entityParts), protocol)
-  }
-
-  implicit class FlowWithHeadAndTail[T](val underlying: Flow[Producer[T]]) {
-    def headAndTail(materializer: FlowMaterializer): Flow[(T, Producer[T])] =
-      underlying.map { p ⇒
-        Flow(p).prefixAndTail(1).map { case (prefix, tail) ⇒ (prefix.head, tail) }.toProducer(materializer)
-      }.flatten(FlattenStrategy.Concat())
   }
 }

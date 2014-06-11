@@ -52,7 +52,7 @@ private[http] class HttpResponseRendererFactory(serverHeader: Option[headers.Ser
 
   def newRenderer: HttpResponseRenderer = new HttpResponseRenderer
 
-  class HttpResponseRenderer extends Transformer[ResponseRenderingContext, Producer[ByteString]] {
+  final class HttpResponseRenderer extends Transformer[ResponseRenderingContext, Producer[ByteString]] {
     private[this] var close = false // signals whether the connection is to be closed after the current response
 
     override def isComplete = close

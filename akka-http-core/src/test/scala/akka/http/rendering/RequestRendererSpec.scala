@@ -137,17 +137,16 @@ class RequestRendererSpec extends FreeSpec with Matchers with BeforeAndAfterAll 
       }
     }
 
-    "properly handle the User-Agent header in a" - {
-      "GET request with overridden (empty) User-Agent and without body" in new TestSetup(None) {
-        HttpRequest(GET, "/abc", List(`User-Agent`("blah-blah/1.0"))) should renderTo {
+    "properly handle the User-Agent header" - {
+      "if no default is set and no explicit User-Agent header given" in new TestSetup(None) {
+        HttpRequest(GET, "/abc") should renderTo {
           """GET /abc HTTP/1.1
-            |User-Agent: blah-blah/1.0
             |Host: test.com:8080
             |
             |"""
         }
       }
-      "GET request with overridden User-Agent and without body" in new TestSetup(Some(`User-Agent`("settings-ua/1.0"))) {
+      "if a default is set but an explicit User-Agent header given" in new TestSetup() {
         HttpRequest(GET, "/abc", List(`User-Agent`("user-ua/1.0"))) should renderTo {
           """GET /abc HTTP/1.1
             |User-Agent: user-ua/1.0

@@ -26,24 +26,28 @@ private[http] class HttpResponseRendererFactory(serverHeader: Option[headers.Ser
                                                 materializer: FlowMaterializer,
                                                 log: LoggingAdapter) {
 
-  private val serverHeaderPlusDateColonSP: Array[Byte] =
+  private val renderDefaultServerHeader: Rendering ⇒ Unit =
     serverHeader match {
-      case None         ⇒ "Date: ".getAsciiBytes
-      case Some(header) ⇒ (new ByteArrayRendering(64) ~~ header ~~ Rendering.CrLf ~~ "Date: ").get
+      case Some(h) ⇒
+        val r = new ByteArrayRendering(32)
+        r ~~ serverHeader.get ~~ CrLf
+        val bytes = r.get
+        _ ~~ bytes
+      case None ⇒ _ ⇒ ()
     }
 
-  // as an optimization we cache the ServerAndDateHeader of the last second here
-  @volatile private[this] var cachedServerAndDateHeader: (Long, Array[Byte]) = (0L, null)
+  // as an optimization we cache the Date header of the last second here
+  @volatile private[this] var cachedDateHeader: (Long, Array[Byte]) = (0L, null)
 
-  private def serverAndDateHeader: Array[Byte] = {
-    var (cachedSeconds, cachedBytes) = cachedServerAndDateHeader
+  private def dateHeader: Array[Byte] = {
+    var (cachedSeconds, cachedBytes) = cachedDateHeader
     val now = System.currentTimeMillis
-    if (now / 1000 != cachedSeconds) {
+    if (now - 1000 > cachedSeconds) {
       cachedSeconds = now / 1000
-      val r = new ByteArrayRendering(serverHeaderPlusDateColonSP.length + 31)
-      dateTime(now).renderRfc1123DateTimeString(r ~~ serverHeaderPlusDateColonSP) ~~ CrLf
+      val r = new ByteArrayRendering(48)
+      dateTime(now).renderRfc1123DateTimeString(r ~~ headers.Date) ~~ CrLf
       cachedBytes = r.get
-      cachedServerAndDateHeader = cachedSeconds -> cachedBytes
+      cachedDateHeader = cachedSeconds -> cachedBytes
     }
     cachedBytes
   }
@@ -63,32 +67,34 @@ private[http] class HttpResponseRendererFactory(serverHeader: Option[headers.Ser
       import ctx.response._
       val noEntity = entity.isKnownEmpty || ctx.requestMethod == HttpMethods.HEAD
 
-      def renderStatusLine(): Unit = {
+      def renderStatusLine(): Unit =
         if (status eq StatusCodes.OK) r ~~ DefaultStatusLine else r ~~ StatusLineStart ~~ status ~~ CrLf
-        r ~~ serverAndDateHeader
-      }
 
       def render(h: HttpHeader) = r ~~ h ~~ CrLf
 
       @tailrec def renderHeaders(remaining: List[HttpHeader] = headers.toList, alwaysClose: Boolean = false,
-                                 connHeader: Connection = null): Unit =
+                                 connHeader: Connection = null, serverHeaderSeen: Boolean = false): Unit =
         remaining match {
           case head :: tail ⇒ head match {
             case x: `Content-Length` ⇒
               suppressionWarning(log, x, "explicit `Content-Length` header is not allowed. Use the appropriate HttpEntity subtype.")
-              renderHeaders(tail, alwaysClose, connHeader)
+              renderHeaders(tail, alwaysClose, connHeader, serverHeaderSeen)
 
             case x: `Content-Type` ⇒
               suppressionWarning(log, x, "explicit `Content-Type` header is not allowed. Set `HttpResponse.entity.contentType` instead.")
-              renderHeaders(tail, alwaysClose, connHeader)
+              renderHeaders(tail, alwaysClose, connHeader, serverHeaderSeen)
 
-            case `Transfer-Encoding`(_) | Date(_) | Server(_) ⇒
+            case `Transfer-Encoding`(_) | Date(_) ⇒
               suppressionWarning(log, head)
-              renderHeaders(tail, alwaysClose, connHeader)
+              renderHeaders(tail, alwaysClose, connHeader, serverHeaderSeen)
 
             case x: `Connection` ⇒
               val connectionHeader = if (connHeader eq null) x else Connection(x.tokens ++ connHeader.tokens)
-              renderHeaders(tail, alwaysClose, connectionHeader)
+              renderHeaders(tail, alwaysClose, connectionHeader, serverHeaderSeen)
+
+            case x: `Server` ⇒
+              render(x)
+              renderHeaders(tail, alwaysClose, connHeader, serverHeaderSeen = true)
 
             case x: RawHeader if x.lowercaseName == "content-type" ||
               x.lowercaseName == "content-length" ||
@@ -97,14 +103,16 @@ private[http] class HttpResponseRendererFactory(serverHeader: Option[headers.Ser
               x.lowercaseName == "server" ||
               x.lowercaseName == "connection" ⇒
               suppressionWarning(log, x, "illegal RawHeader")
-              renderHeaders(tail, alwaysClose, connHeader)
+              renderHeaders(tail, alwaysClose, connHeader, serverHeaderSeen)
 
             case x ⇒
               render(x)
-              renderHeaders(tail, alwaysClose, connHeader)
+              renderHeaders(tail, alwaysClose, connHeader, serverHeaderSeen)
           }
 
           case Nil ⇒
+            if (!serverHeaderSeen) renderDefaultServerHeader(r)
+            r ~~ dateHeader
             close = alwaysClose ||
               ctx.closeAfterResponseCompletion || // request wants to close
               (connHeader != null && connHeader.hasClose) // application wants to close

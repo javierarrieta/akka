@@ -128,14 +128,14 @@ class ResponseRendererSpec extends FreeSpec with Matchers with BeforeAndAfterAll
         the[RuntimeException] thrownBy {
           HttpResponse(200, Default(ContentTypes.`application/json`, 10,
             producer(ByteString("body123")))) should renderTo("")
-        } should have message "Response had declared Content-Length 10 but entity chunk stream amounts to 3 bytes less"
+        } should have message "HTTP message had declared Content-Length 10 but entity chunk stream amounts to 3 bytes less"
       }
 
       "with one chunk and incorrect (too small) Content-Length" in new TestSetup() {
         the[RuntimeException] thrownBy {
           HttpResponse(200, Default(ContentTypes.`application/json`, 5,
             producer(ByteString("body123")))) should renderTo("")
-        } should have message "Response had declared Content-Length 5 but entity chunk stream amounts to more bytes"
+        } should have message "HTTP message had declared Content-Length 5 but entity chunk stream amounts to more bytes"
       }
 
     }
@@ -169,7 +169,7 @@ class ResponseRendererSpec extends FreeSpec with Matchers with BeforeAndAfterAll
     "a chunked response" - {
       "with empty entity" in new TestSetup() {
         HttpResponse(200, List(RawHeader("Age", "30")),
-          Chunked(ContentTypes.`application/json`, producer())) should renderTo {
+          Chunked(ContentTypes.NoContentType, producer())) should renderTo {
             """HTTP/1.1 200 OK
               |Server: akka-http/1.0.0
               |Date: Thu, 25 Aug 2011 09:10:29 GMT
@@ -179,9 +179,22 @@ class ResponseRendererSpec extends FreeSpec with Matchers with BeforeAndAfterAll
           }
       }
 
+      "with empty entity but non-default Content-Type" in new TestSetup() {
+        HttpResponse(200, List(RawHeader("Age", "30")),
+          Chunked(ContentTypes.`application/json`, producer())) should renderTo {
+            """HTTP/1.1 200 OK
+              |Server: akka-http/1.0.0
+              |Date: Thu, 25 Aug 2011 09:10:29 GMT
+              |Age: 30
+              |Content-Type: application/json; charset=UTF-8
+              |
+              |"""
+          }
+      }
+
       "with one chunk and no explicit LastChunk" in new TestSetup() {
         HttpResponse(entity = Chunked(ContentTypes.`text/plain(UTF-8)`,
-          producer(Chunk(ByteString("Yahoooo"))))) should renderTo {
+          producer("Yahoooo"))) should renderTo {
           """HTTP/1.1 200 OK
             |Server: akka-http/1.0.0
             |Date: Thu, 25 Aug 2011 09:10:29 GMT
@@ -222,7 +235,7 @@ class ResponseRendererSpec extends FreeSpec with Matchers with BeforeAndAfterAll
         ResponseRenderingContext(
           requestProtocol = HttpProtocols.`HTTP/1.0`,
           response = HttpResponse(entity = Chunked(ContentTypes.`application/json`,
-            producer(Chunk(ByteString("abc")), Chunk(ByteString("defg")))))) should renderTo(
+            producer(Chunk("abc"), Chunk("defg"))))) should renderTo(
             """HTTP/1.1 200 OK
               |Server: akka-http/1.0.0
               |Date: Thu, 25 Aug 2011 09:10:29 GMT
@@ -300,9 +313,9 @@ class ResponseRendererSpec extends FreeSpec with Matchers with BeforeAndAfterAll
       renderTo(expected, close = false) compose (ResponseRenderingContext(_))
 
     def renderTo(expected: String, close: Boolean): Matcher[ResponseRenderingContext] =
-      equal(expected.stripMarginWithNewline("\r\n") -> close).matcher[(String, Boolean)] compose { input ⇒
+      equal(expected.stripMarginWithNewline("\r\n") -> close).matcher[(String, Boolean)] compose { ctx ⇒
         val renderer = newRenderer
-        val byteStringProducer :: Nil = renderer.onNext(input)
+        val byteStringProducer :: Nil = renderer.onNext(ctx)
         val future = Flow(byteStringProducer).grouped(1000).toFuture(materializer).map(_.reduceLeft(_ ++ _).utf8String)
         Await.result(future, 250.millis) -> renderer.isComplete
       }

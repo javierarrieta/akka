@@ -5,6 +5,7 @@
 package akka.http
 
 import language.implicitConversions
+import java.nio.charset.Charset
 import com.typesafe.config.Config
 import org.reactivestreams.api.Producer
 import akka.actor.{ ActorRefFactory, ActorContext, ActorSystem }
@@ -12,6 +13,7 @@ import akka.stream.scaladsl.Flow
 import akka.stream.{ FlattenStrategy, FlowMaterializer }
 
 package object util {
+  private[http] val UTF8 = Charset.forName("UTF8")
 
   private[http] def actorSystem(implicit refFactory: ActorRefFactory): ActorSystem =
     refFactory match {
